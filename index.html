@@ -307,14 +307,7 @@
                 <!-- Settlement Banner -->
                 <div id="settleBanner" style="display: none;"></div>
 
-                <!-- Action Buttons -->
-                <div class="flex items-center justify-between gap-2">
-                    <div class="flex items-center gap-1.5">
-                        <button class="action-btn" id="btnUndo" onclick="window.demoTrader.undo()" disabled style="font-size:10px; padding: 4px 8px;">↩ Undo</button>
-                        <button class="action-btn" id="btnReset" onclick="window.demoTrader.resetRound()" style="font-size:10px; padding: 4px 8px;">🗑 Reset</button>
-                    </div>
-                    <div class="text-[9px] text-gray-500 mono" id="demoSettleInfo">Settlement: auto</div>
-                </div>
+
             </div>
         </div>
 
@@ -889,10 +882,10 @@
                     $progressBar.style.background = 'linear-gradient(90deg, #22c55e, #3b82f6)';
                 }
 
-                // ── Demo Trader: auto-settlement 10s before end ───
+                // ── Demo Trader: auto-settlement 3s before end ───
                 if (window.demoTrader) {
                     window.demoTrader.updateSettleCountdown(remaining);
-                    if (remaining <= 10 && remaining > 0) {
+                    if (remaining <= 3 && remaining > 0) {
                         window.demoTrader.checkSettlement();
                     }
                 }
@@ -1046,7 +1039,7 @@
             const $tradeLog = $('tradeLog');
             const $settleBanner = $('settleBanner');
             const $settleInfo = $('demoSettleInfo');
-            const $btnUndo = $('btnUndo');
+
             const $btnBuyYes = $('btnBuyYes'), $btnBuyNo = $('btnBuyNo');
 
             // State
@@ -1199,9 +1192,10 @@
             }
 
             function updateSettleCountdown(remaining) {
+                if (!$settleInfo) return;
                 if (state.settled) {
                     $settleInfo.textContent = '✅ Settled';
-                } else if (remaining <= 10) {
+                } else if (remaining <= 3) {
                     $settleInfo.textContent = `⚡ Settlement in ${remaining}s`;
                     $settleInfo.style.color = '#ef4444';
                 } else if (remaining <= 60) {
@@ -1279,7 +1273,7 @@
                 }
 
                 // Button states
-                $btnUndo.disabled = state.history.length === 0 || state.settled;
+
                 $btnBuyYes.disabled = state.settled;
                 $btnBuyNo.disabled = state.settled;
             }

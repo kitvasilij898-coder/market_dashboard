@@ -27,7 +27,7 @@ MARKET_INTERVAL = 15 * 60  # 15 minutes in seconds
 ROTATION_CHECK_INTERVAL = 5
 DISCOVERY_RETRY_DELAY = 10
 MAX_DISCOVERY_RETRIES = 12
-MAX_HISTORY = 20
+MAX_HISTORY = 5  # 3 past + 1 live + 1 next
 BTC_POLL_INTERVAL = 2.0  # fetch BTC price every 2 seconds
 
 
@@ -220,7 +220,7 @@ class MarketRegistry:
         if not inserted:
             self._markets.append(market)
 
-        while len(self._markets) > MAX_HISTORY + 2:
+        while len(self._markets) > MAX_HISTORY:
             oldest = self._markets.pop(0)
             del self._by_slug[oldest.slug]
 

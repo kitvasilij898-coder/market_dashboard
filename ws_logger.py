@@ -219,8 +219,15 @@ class MultiMarketManager:
             self._all_assets.add(market.no_token_id)
             print(f"📊 Tracking market: {market.slug} ({market.role})")
 
+        # Force-close WS so _run_forever reconnects with ALL assets atomically.
+        # Polymarket API overwrites subscriptions on partial updates, so we must
+        # reconnect and send a single subscription with the full asset list.
         if self._ws and _ws_is_open(self._ws):
-            await self._send_subscription([market.yes_token_id, market.no_token_id])
+            print(f"🔄 Force-closing WS to resubscribe with all {len(self._all_assets)} assets...")
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
 
     async def remove_market(self, slug: str):
         async with self._lock:
