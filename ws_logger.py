@@ -74,11 +74,10 @@ class CSVLogger:
     MARKET_DURATION = 900  # 15 minutes in seconds
 
     def __init__(self, slug: str):
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
         self._slug = slug
-        self._filepath = DATA_DIR / f"{slug}.csv"
-        self._file = open(self._filepath, mode="a", newline="", buffering=1)
-        self._writer = csv.writer(self._file)
+        self._filepath = None
+        self._file = None
+        self._writer = None
         self._last_write: float = 0.0
 
         # Extract market_unix from slug (e.g. "btc-updown-15m-1774449000" → 1774449000)
@@ -89,13 +88,6 @@ class CSVLogger:
         self._window_start = float(self._market_unix)
         self._window_end = float(self._market_unix + self.MARKET_DURATION)
 
-        if self._filepath.stat().st_size == 0:
-            self._writer.writerow([
-                "timestamp", "timestamp_readable",
-                "yes_price", "no_price",
-                "btc_price", "price_to_beat", "btc_delta",
-            ])
-        print(f"📝 CSV logging to: {self._filepath}")
 
     def log_tick(self, yes_price: float, no_price: float,
                  btc_price: float = 0.0, price_to_beat: float = 0.0, btc_delta: float = 0.0):
@@ -127,16 +119,9 @@ class CSVLogger:
 
 class UnifiedCSVLogger:
     def __init__(self):
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        self._filepath = DATA_DIR / "unified_events.csv"
-        self._file = open(self._filepath, mode="a", newline="", buffering=1)
-        self._writer = csv.writer(self._file)
-        
-        if self._filepath.stat().st_size == 0:
-            self._writer.writerow([
-                "timestamp_readable", "seconds_left", "spread", "btc_delta"
-            ])
-        print(f"📝 Unified CSV logging to: {self._filepath}")
+        self._filepath = None
+        self._file = None
+        self._writer = None
 
     def log_state(self, timestamp: float, slug: str, market_unix: int, 
                   yes_price: float, no_price: float, btc_delta: float):
