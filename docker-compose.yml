@@ -1,0 +1,9 @@
+services:
+  dashboard:
+    build: .
+    container_name: polymarket-dashboard
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

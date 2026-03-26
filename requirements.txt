@@ -1,0 +1,5 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+websockets>=12.0
+aiohttp>=3.9
+pandas>=2.0
