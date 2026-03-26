@@ -1,0 +1,1301 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Research Dashboard — Polymarket 15m BTC</title>
+    <meta name="description" content="Real-time Polymarket 15-minute BTC Up/Down price visualization with BTC delta tracking">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwindcss.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+                    colors: {
+                        surface: { 900: '#0a0a0f', 800: '#12121a', 700: '#1a1a25', 600: '#24243a' },
+                    }
+                }
+            }
+        }
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', system-ui, sans-serif; background: #0a0a0f; color: #e2e8f0; overflow-x: hidden; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #12121a; }
+        ::-webkit-scrollbar-thumb { background: #3b3b5c; border-radius: 3px; }
+
+        .glass-card {
+            background: linear-gradient(135deg, rgba(18,18,26,0.9), rgba(26,26,37,0.7));
+            border: 1px solid rgba(255,255,255,0.06);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            transition: all 0.3s ease;
+        }
+        .glass-card:hover { border-color: rgba(255,255,255,0.12); box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #22c55e, #3b82f6, #a855f7);
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-size: 200% auto;
+            animation: gradientShift 4s ease-in-out infinite;
+        }
+        @keyframes gradientShift { 0%, 100% { background-position: 0% center; } 50% { background-position: 100% center; } }
+
+        .pulse-dot { width: 8px; height: 8px; border-radius: 50%; animation: pulse 2s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.6); } 50% { opacity: 0.8; box-shadow: 0 0 0 8px rgba(34,197,94,0); } }
+
+        .price-update { animation: priceFlash 0.3s ease-out; }
+        @keyframes priceFlash { 0% { text-shadow: 0 0 20px currentColor; } 100% { text-shadow: none; } }
+
+        .tick-pulse { animation: tickFlash 0.3s ease-out; }
+        @keyframes tickFlash { 0% { opacity: 0.6; } 100% { opacity: 1; } }
+
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-connected { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.5); }
+        .status-disconnected { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.5); }
+        .status-connecting { background: #f59e0b; animation: pulse 1s ease infinite; }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        .timer-urgent { color: #ef4444 !important; animation: timerPulse 1s ease infinite; }
+        @keyframes timerPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        #chartContainer { position: relative; width: 100%; height: 350px; }
+        #deltaChartContainer { position: relative; width: 100%; height: 200px; }
+
+        #logContainer { max-height: 160px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5; }
+        .log-entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+
+        /* ── Carousel ─────────────────────────────────────────────── */
+        .carousel-nav { display: flex; align-items: center; gap: 12px; }
+        .carousel-arrow {
+            width: 40px; height: 40px; border-radius: 12px;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            color: #94a3b8; cursor: pointer; font-size: 18px;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s ease;
+        }
+        .carousel-arrow:hover { background: rgba(255,255,255,0.1); color: #e2e8f0; border-color: rgba(255,255,255,0.2); }
+        .carousel-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .market-pill {
+            padding: 6px 14px; border-radius: 12px; cursor: pointer;
+            font-size: 13px; font-weight: 600; transition: all 0.25s ease;
+            border: 1px solid transparent; white-space: nowrap;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .market-pill.past { background: rgba(100,116,139,0.15); color: #94a3b8; border-color: rgba(100,116,139,0.3); }
+        .market-pill.current { background: rgba(34,197,94,0.15); color: #22c55e; border-color: rgba(34,197,94,0.3); }
+        .market-pill.next { background: rgba(59,130,246,0.15); color: #3b82f6; border-color: rgba(59,130,246,0.3); }
+        .market-pill.active { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        .market-pill.past.active { background: rgba(100,116,139,0.35); border-color: #94a3b8; color: #cbd5e1; }
+        .market-pill.current.active { background: rgba(34,197,94,0.35); border-color: #22c55e; color: #4ade80; }
+        .market-pill.next.active { background: rgba(59,130,246,0.35); border-color: #3b82f6; color: #60a5fa; }
+
+        .role-badge {
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 4px 10px; border-radius: 8px;
+            font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
+            line-height: 1;
+        }
+        .badge-past { background: rgba(100,116,139,0.25); color: #94a3b8; }
+        .badge-current { background: rgba(34,197,94,0.25); color: #22c55e; }
+        .badge-next { background: rgba(59,130,246,0.25); color: #3b82f6; }
+
+        .chart-fade { opacity: 0; transition: opacity 0.3s ease; }
+        .chart-visible { opacity: 1; }
+
+        /* ── Delta display ───────────────────────────────────────── */
+        .delta-positive { color: #22c55e; }
+        .delta-negative { color: #ef4444; }
+        .delta-neutral { color: #6b7280; }
+
+        /* ── Demo Trading Calculator ─────────────────────────────── */
+        .trade-btn {
+            padding: 10px 20px; border-radius: 12px; border: none;
+            font-family: 'Inter', sans-serif; font-weight: 700; font-size: 13px;
+            cursor: pointer; transition: all 0.2s ease; text-transform: uppercase;
+            letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;
+            justify-content: center; flex: 1;
+        }
+        .trade-btn:active { transform: scale(0.96); }
+        .trade-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+        .trade-btn-yes {
+            background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,197,94,0.1));
+            color: #22c55e; border: 1px solid rgba(34,197,94,0.3);
+        }
+        .trade-btn-yes:hover:not(:disabled) { background: linear-gradient(135deg, rgba(34,197,94,0.35), rgba(34,197,94,0.2)); box-shadow: 0 0 20px rgba(34,197,94,0.15); }
+        .trade-btn-no {
+            background: linear-gradient(135deg, rgba(239,68,68,0.2), rgba(239,68,68,0.1));
+            color: #ef4444; border: 1px solid rgba(239,68,68,0.3);
+        }
+        .trade-btn-no:hover:not(:disabled) { background: linear-gradient(135deg, rgba(239,68,68,0.35), rgba(239,68,68,0.2)); box-shadow: 0 0 20px rgba(239,68,68,0.15); }
+        .action-btn {
+            padding: 5px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.04); color: #94a3b8; font-size: 11px;
+            cursor: pointer; transition: all 0.2s ease; font-family: 'Inter', sans-serif;
+        }
+        .action-btn:hover { background: rgba(255,255,255,0.08); color: #e2e8f0; }
+        .action-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .pc-safe { color: #22c55e; }
+        .pc-danger { color: #ef4444; }
+        .settled-banner {
+            padding: 12px; border-radius: 10px; text-align: center;
+            font-weight: 600; font-size: 13px; margin-top: 8px;
+            animation: settleFade 0.5s ease;
+        }
+        .settled-win { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #22c55e; }
+        .settled-loss { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; }
+        @keyframes settleFade { 0% { opacity: 0; transform: translateY(8px); } 100% { opacity: 1; transform: translateY(0); } }
+        #tradeLog { max-height: 60px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; line-height: 1.6; }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
+
+        <!-- ─── HEADER ─────────────────────────────────────────────── -->
+        <header class="mb-6">
+            <div class="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-extrabold gradient-text tracking-tight">
+                        Market Research Dashboard
+                    </h1>
+                    <p class="text-sm text-gray-500 mt-1">Polymarket 15-min BTC Up/Down — Multi-Market Carousel</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span id="wsStatus" class="flex items-center text-xs text-gray-400">
+                        <span class="status-dot status-disconnected" id="wsStatusDot"></span>
+                        <span id="wsStatusText">Disconnected</span>
+                    </span>
+                    <span class="text-xs text-gray-600 mono" id="tickCount">0 ticks</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- ─── COMPACT CAROUSEL — Single Row ────────────────────── -->
+        <div class="glass-card px-6 py-4 mb-6" id="carouselCard">
+            <div class="flex items-center justify-between gap-6 flex-wrap">
+                <!-- Left: Badge + Slug -->
+                <div class="flex items-center gap-4 min-w-0 flex-1">
+                    <span class="role-badge badge-current shadow-sm" style="padding: 6px 12px; font-size: 12px;" id="roleBadge">LIVE</span>
+                    <div class="min-w-0 flex flex-col justify-center">
+                        <div class="text-[15px] font-bold mono text-gray-100 truncate leading-tight" id="marketSlug">Waiting...</div>
+                        <div class="text-[11px] text-gray-400 truncate mt-1 leading-tight" id="marketQuestion">—</div>
+                    </div>
+                </div>
+                <!-- Right: Pills -->
+                <div class="flex items-center gap-3 justify-end" id="marketPills"></div>
+            </div>
+        </div>
+
+        <!-- ─── STATS + TRADING PANEL (Side by Side) ─────────────── -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <!-- LEFT: Price Stats 2×2 -->
+            <div class="grid grid-cols-2 gap-4 order-2">
+                <div class="glass-card p-5">
+                    <div class="text-xs text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-green-500"></span> Yes / Up Price
+                    </div>
+                    <div class="text-3xl font-bold mono text-green-400" id="yesPrice">—</div>
+                    <div class="text-xs text-gray-500 mt-1 mono" id="yesPriceSub">—</div>
+                </div>
+                <div class="glass-card p-5">
+                    <div class="text-xs text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-red-500"></span> No / Down Price
+                    </div>
+                    <div class="text-3xl font-bold mono text-red-400" id="noPrice">—</div>
+                    <div class="text-xs text-gray-500 mt-1 mono" id="noPriceSub">—</div>
+                </div>
+                <div class="glass-card p-5 text-center">
+                    <div class="text-xs text-gray-500 uppercase tracking-wider mb-2">BTC Delta (Δ)</div>
+                    <div class="text-3xl font-extrabold mono" id="btcDelta">—</div>
+                    <div class="text-xs mt-1" id="btcDeltaLabel">—</div>
+                </div>
+                <div class="glass-card p-5 text-center">
+                    <div class="text-xs text-gray-500 uppercase tracking-wider mb-2">Spread (Yes − No)</div>
+                    <div class="text-3xl font-extrabold mono" id="spread">—</div>
+                    <div class="text-xs text-gray-500 mt-2" id="spreadLabel">—</div>
+                </div>
+            </div>
+
+            <!-- RIGHT: Demo Trading Calculator -->
+            <div class="glass-card p-4 order-1" id="traderPanel">
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="text-base">💰</span>
+                        <h2 class="text-xs font-semibold text-gray-300 uppercase tracking-wider">Demo Trading</h2>
+                        <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-semibold">PAPER</span>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-[9px] text-gray-500 uppercase tracking-wider">Balance</div>
+                        <div class="text-lg font-bold mono text-white" id="demoBalance">$100.00</div>
+                    </div>
+                </div>
+
+                <!-- Positions Grid -->
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <!-- YES Position -->
+                    <div class="rounded-lg p-3" style="background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.12);">
+                        <div class="flex items-center gap-1.5 mb-1.5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                            <span class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Yes / Up</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] mb-2">
+                            <div class="text-gray-500">Shares</div>
+                            <div class="mono text-gray-200 text-right" id="demoQtyYes">0</div>
+                            <div class="text-gray-500">Avg</div>
+                            <div class="mono text-gray-200 text-right" id="demoAvgYes">—</div>
+                            <div class="text-gray-500">Cost</div>
+                            <div class="mono text-gray-200 text-right" id="demoCostYes">$0.00</div>
+                            <div class="text-gray-500">Payout</div>
+                            <div class="mono text-green-400 text-right font-semibold" id="demoPayoutYes">$0.00</div>
+                        </div>
+                        <button class="trade-btn trade-btn-yes w-full" id="btnBuyYes" onclick="window.demoTrader.buy('yes')" style="padding: 7px 10px; font-size: 11px;">
+                            🟢 Buy YES × 5
+                        </button>
+                    </div>
+                    <!-- NO Position -->
+                    <div class="rounded-lg p-3" style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.12);">
+                        <div class="flex items-center gap-1.5 mb-1.5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                            <span class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">No / Down</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] mb-2">
+                            <div class="text-gray-500">Shares</div>
+                            <div class="mono text-gray-200 text-right" id="demoQtyNo">0</div>
+                            <div class="text-gray-500">Avg</div>
+                            <div class="mono text-gray-200 text-right" id="demoAvgNo">—</div>
+                            <div class="text-gray-500">Cost</div>
+                            <div class="mono text-gray-200 text-right" id="demoCostNo">$0.00</div>
+                            <div class="text-gray-500">Payout</div>
+                            <div class="mono text-red-400 text-right font-semibold" id="demoPayoutNo">$0.00</div>
+                        </div>
+                        <button class="trade-btn trade-btn-no w-full" id="btnBuyNo" onclick="window.demoTrader.buy('no')" style="padding: 7px 10px; font-size: 11px;">
+                            🔴 Buy NO × 5
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PC / GP / Stats Row -->
+                <div class="rounded-lg p-2.5 mb-2" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);">
+                    <div class="flex items-center justify-between flex-wrap gap-2 text-[11px]">
+                        <div class="flex items-center gap-3">
+                            <div><span class="text-gray-500">PC:</span> <span class="mono font-bold" id="demoPC">—</span></div>
+                            <div><span class="text-gray-500">GP:</span> <span class="mono font-bold" id="demoGP">—</span></div>
+                            <div><span class="text-gray-500">Inv:</span> <span class="mono text-gray-300" id="demoTotalCost">$0.00</span></div>
+                        </div>
+                        <div><span class="text-gray-500">P/L:</span> <span class="mono font-bold" id="demoRoundPL">$0.00</span></div>
+                    </div>
+                </div>
+
+                <!-- Trade Log -->
+                <div id="tradeLog" class="mb-2" style="max-height: 42px;"></div>
+
+                <!-- Settlement Banner -->
+                <div id="settleBanner" style="display: none;"></div>
+
+                <!-- Action Buttons -->
+                <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-1.5">
+                        <button class="action-btn" id="btnUndo" onclick="window.demoTrader.undo()" disabled style="font-size:10px; padding: 4px 8px;">↩ Undo</button>
+                        <button class="action-btn" id="btnReset" onclick="window.demoTrader.resetRound()" style="font-size:10px; padding: 4px 8px;">🗑 Reset</button>
+                    </div>
+                    <div class="text-[9px] text-gray-500 mono" id="demoSettleInfo">Settlement: auto</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── TOKEN PRICE CHART ─────────────────────────────────── -->
+        <div class="glass-card p-5 mb-6">
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-4">
+                <!-- Left: Title -->
+                <div class="flex items-center gap-2 min-w-[200px]">
+                    <div class="pulse-dot bg-green-500" id="chartLiveDot"></div>
+                    <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider" id="chartTitle">Live Price Chart</h2>
+                </div>
+                
+                <!-- Center: Timer + BTC -->
+                <div class="flex items-center justify-center gap-4 flex-1">
+                    <!-- Timer (Upgraded UI) -->
+                    <div class="flex items-center gap-4 bg-white/5 rounded-lg px-4 py-1.5 border border-white/5 shadow-inner">
+                        <div class="text-[26px] font-extrabold mono leading-none tracking-tight text-white" id="countdown" style="min-width: 85px; text-align: right;">--:--</div>
+                        <div class="w-[160px]">
+                            <div class="w-full bg-gray-900/60 rounded-full h-2 overflow-hidden shadow-inner border border-white/5">
+                                <div class="h-full rounded-full transition-all duration-1000 ease-linear" id="progressBar"
+                                     style="width: 100%; background: linear-gradient(90deg, #22c55e, #3b82f6);"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- BTC Price metrics (Symmetrical layout) -->
+                    <div class="flex items-center gap-4 bg-white/5 rounded-lg px-3 py-1.5 border border-white/5 shadow-inner">
+                        <div class="flex flex-col items-end min-w-[75px]">
+                            <div class="text-[9px] text-gray-400 uppercase tracking-widest leading-none mb-1">BTC</div>
+                            <div class="text-[13px] sm:text-sm font-bold mono text-yellow-400 leading-none" id="btcCurrentPrice">—</div>
+                        </div>
+                        <div class="w-px h-6 bg-white/10"></div>
+                        <div class="flex flex-col items-start min-w-[75px]">
+                            <div class="text-[9px] text-gray-400 uppercase tracking-widest leading-none mb-1">PTB</div>
+                            <div class="text-[13px] sm:text-sm font-bold mono text-gray-300 leading-none" id="btcPriceToBeat">—</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Legend -->
+                <div class="flex items-center gap-4 text-xs text-gray-500 justify-end min-w-[200px]">
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-green-500 rounded"></span> Yes (Up)</span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-red-500 rounded"></span> No (Down)</span>
+                </div>
+            </div>
+            <div id="chartContainer" class="chart-visible">
+                <canvas id="priceChart"></canvas>
+            </div>
+            <div class="text-xs text-gray-600 mt-2" id="dataStats">
+                <span id="dataPoints">0</span> data points · <span id="dataRate">0 pts/sec</span>
+            </div>
+        </div>
+
+        <!-- ─── DELTA CHART ──────────────────────────────────────────── -->
+        <div class="glass-card p-5 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <div class="pulse-dot bg-yellow-500" id="deltaChartLiveDot"></div>
+                    <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider" id="deltaChartTitle">BTC Delta (Δ) Chart</h2>
+                </div>
+                <div class="flex items-center gap-4 text-xs text-gray-500">
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-yellow-500 rounded"></span> BTC Δ ($)</span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-gray-500 rounded" style="border-top:1px dashed #6b7280"></span> Zero line</span>
+                </div>
+            </div>
+            <div id="deltaChartContainer">
+                <canvas id="deltaChart"></canvas>
+            </div>
+        </div>
+
+        <!-- ─── EVENT LOG ──────────────────────────────────────────── -->
+        <div class="glass-card p-5">
+            <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Event Log</h2>
+            <div id="logContainer"></div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        'use strict';
+
+        // ── DOM Refs ────────────────────────────────────────────────
+        const $ = id => document.getElementById(id);
+        const $slug = $('marketSlug'), $question = $('marketQuestion'), $roleBadge = $('roleBadge');
+        const $yesPrice = $('yesPrice'), $noPrice = $('noPrice');
+        const $yesSub = $('yesPriceSub'), $noSub = $('noPriceSub');
+        const $countdown = $('countdown'), $progressBar = $('progressBar');
+        const $spread = $('spread'), $spreadLabel = $('spreadLabel');
+        const $dataPoints = $('dataPoints'), $dataRate = $('dataRate');
+        const $tickCount = $('tickCount');
+        const $wsStatusDot = $('wsStatusDot'), $wsStatusText = $('wsStatusText');
+        const $logContainer = $('logContainer');
+        const $pills = $('marketPills');
+        const $chartTitle = $('chartTitle'), $chartLiveDot = $('chartLiveDot');
+        const $chartContainer = $('chartContainer');
+        const $deltaChartTitle = $('deltaChartTitle'), $deltaChartLiveDot = $('deltaChartLiveDot');
+        // BTC delta
+        const $btcCurrentPrice = $('btcCurrentPrice');
+        const $btcPriceToBeat = $('btcPriceToBeat');
+        const $btcDelta = $('btcDelta'), $btcDeltaLabel = $('btcDeltaLabel');
+
+        // ── State ───────────────────────────────────────────────────
+        let ws = null;
+        let reconnectDelay = 1000;
+        let tickCounter = 0;
+        let markets = [];
+        let selectedIndex = -1;
+        let selectedSlug = '';
+        let currentSlug = '';
+        let nextSlug = '';
+        let lastYes = null, lastNo = null;
+        let dataPointCount = 0;
+        let dataStartTime = Date.now();
+        let countdownInterval = null;
+
+        // Per-market live chart data
+        const liveChartData = {};
+
+        // ── Chart Setup — 3 datasets: Yes, No, BTC Delta ──────────
+        // ── Main Price Chart (Yes/No only) ───────────────────────────
+        const ctx = $('priceChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Yes (Up)', data: [],
+                        borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.08)',
+                        fill: true, borderWidth: 2, pointRadius: 0, pointHitRadius: 8, tension: 0.3,
+                    },
+                    {
+                        label: 'No (Down)', data: [],
+                        borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)',
+                        fill: true, borderWidth: 2, pointRadius: 0, pointHitRadius: 8, tension: 0.3,
+                    },
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                animation: { duration: 0 },
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(10,10,15,0.95)', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
+                        titleFont: { family: 'JetBrains Mono', size: 11 },
+                        bodyFont: { family: 'JetBrains Mono', size: 12 }, padding: 12,
+                        callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(4)}` }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'time', time: { unit: 'minute', displayFormats: { minute: 'HH:mm', second: 'HH:mm:ss' }, tooltipFormat: 'HH:mm:ss' },
+                        grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+                        ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 }, maxTicksLimit: 15 },
+                        border: { display: false },
+                    },
+                    y: {
+                        min: 0, max: 1, position: 'left',
+                        grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+                        ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 }, stepSize: 0.1, callback: v => v.toFixed(1) },
+                        border: { display: false },
+                        title: { display: true, text: 'Token Price', color: '#4b5563', font: { size: 10 } },
+                    },
+                }
+            }
+        });
+
+        // ── Separate Delta Chart ─────────────────────────────────────
+        const deltaCtx = $('deltaChart').getContext('2d');
+        const deltaChart = new Chart(deltaCtx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'BTC Delta ($)', data: [],
+                        borderColor: '#eab308', backgroundColor: 'rgba(234,179,8,0.08)',
+                        fill: true, borderWidth: 2, pointRadius: 0, pointHitRadius: 8, tension: 0.3,
+                    }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                animation: { duration: 0 },
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(10,10,15,0.95)', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
+                        titleFont: { family: 'JetBrains Mono', size: 11 },
+                        bodyFont: { family: 'JetBrains Mono', size: 12 }, padding: 12,
+                        callbacks: { label: ctx => `BTC Δ: $${ctx.parsed.y.toFixed(2)}` }
+                    },
+                    annotation: undefined,
+                },
+                scales: {
+                    x: {
+                        type: 'time', time: { unit: 'minute', displayFormats: { minute: 'HH:mm', second: 'HH:mm:ss' }, tooltipFormat: 'HH:mm:ss' },
+                        grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+                        ticks: { color: '#6b7280', font: { family: 'JetBrains Mono', size: 10 }, maxTicksLimit: 15 },
+                        border: { display: false },
+                    },
+                    y: {
+                        position: 'left',
+                        grid: {
+                            color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.04)',
+                            lineWidth: ctx => ctx.tick.value === 0 ? 2 : 1,
+                            drawBorder: false,
+                        },
+                        ticks: {
+                            color: '#eab308', font: { family: 'JetBrains Mono', size: 10 },
+                            callback: v => (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(0),
+                        },
+                        afterDataLimits: axis => {
+                            const absMax = Math.max(Math.abs(axis.min), Math.abs(axis.max), 10);
+                            axis.min = -absMax;
+                            axis.max = absMax;
+                        },
+                        border: { display: false },
+                        title: { display: true, text: 'BTC Delta ($)', color: '#eab308', font: { size: 10 } },
+                    }
+                }
+            }
+        });
+
+        // ── Chart Helpers ───────────────────────────────────────────
+
+        /**
+         * Set the chart x-axis to a fixed 15-minute window.
+         * @param {number} marketUnix — the market start timestamp (seconds)
+         */
+        let currentMarketStartMs = 0;
+        let currentMarketEndMs = 0;
+
+        function setChartTimeWindow(marketUnix) {
+            if (!marketUnix) return;
+            currentMarketStartMs = marketUnix * 1000;
+            currentMarketEndMs = (marketUnix + 900) * 1000; // +15 min
+            chart.options.scales.x.min = currentMarketStartMs;
+            deltaChart.options.scales.x.min = currentMarketStartMs;
+            // Start with a small window; addLivePoint will expand it as data arrives
+            const initialMax = currentMarketStartMs + 60 * 1000; // Start with 1 min visible
+            chart.options.scales.x.max = initialMax;
+            deltaChart.options.scales.x.max = initialMax;
+        }
+
+        function addLivePoint(slug, yesP, noP, btcDelta) {
+            if (!liveChartData[slug]) liveChartData[slug] = [];
+            const arr = liveChartData[slug];
+            const now = new Date();
+            arr.push({ x: now, yYes: yesP, yNo: noP, delta: btcDelta || 0 });
+            if (arr.length > 900) arr.shift();
+
+            if (slug === selectedSlug) {
+                const mkt = markets.find(m => m.slug === slug);
+                const marketStart = mkt ? mkt.market_unix * 1000 : 0;
+                const marketEnd = marketStart + 900 * 1000; // +15 min
+
+                if (now.getTime() >= marketStart && now.getTime() <= marketEnd) {
+                    const pt = arr[arr.length - 1];
+                    chart.data.datasets[0].data.push({ x: pt.x, y: yesP });
+                    chart.data.datasets[1].data.push({ x: pt.x, y: noP });
+
+                    // Trim any data outside the 15-min window
+                    chart.data.datasets[0].data = chart.data.datasets[0].data.filter(
+                        p => p.x.getTime() >= marketStart && p.x.getTime() <= marketEnd
+                    );
+                    chart.data.datasets[1].data = chart.data.datasets[1].data.filter(
+                        p => p.x.getTime() >= marketStart && p.x.getTime() <= marketEnd
+                    );
+
+                    // Dynamically grow x-axis: current time + 30s lookahead, capped at market end
+                    const dynamicMax = Math.min(now.getTime() + 30000, marketEnd);
+                    chart.options.scales.x.max = dynamicMax;
+                    deltaChart.options.scales.x.max = dynamicMax;
+
+                    chart.update('none');
+                    // Delta chart
+                    deltaChart.data.datasets[0].data.push({ x: pt.x, y: pt.delta });
+                    deltaChart.data.datasets[0].data = deltaChart.data.datasets[0].data.filter(
+                        p => p.x.getTime() >= marketStart && p.x.getTime() <= marketEnd
+                    );
+                    deltaChart.update('none');
+                    dataPointCount = chart.data.datasets[0].data.length;
+                }
+            }
+        }
+
+        function loadChartFromLiveData(slug) {
+            const arr = liveChartData[slug] || [];
+            const mkt = markets.find(m => m.slug === slug);
+            const marketStart = mkt ? mkt.market_unix * 1000 : 0;
+            const marketEnd = marketStart + 900 * 1000;
+            const filtered = arr.filter(p => p.x.getTime() >= marketStart && p.x.getTime() <= marketEnd);
+            chart.data.datasets[0].data = filtered.map(p => ({ x: p.x, y: p.yYes }));
+            chart.data.datasets[1].data = filtered.map(p => ({ x: p.x, y: p.yNo }));
+
+            // Dynamic x-axis max: last data point + 30s, or 1min from start, capped at market end
+            if (filtered.length > 0) {
+                const lastPt = filtered[filtered.length - 1].x.getTime();
+                const dynamicMax = Math.min(lastPt + 30000, marketEnd);
+                chart.options.scales.x.max = dynamicMax;
+                deltaChart.options.scales.x.max = dynamicMax;
+            } else {
+                chart.options.scales.x.max = marketStart + 60000;
+                deltaChart.options.scales.x.max = marketStart + 60000;
+            }
+
+            chart.update('none');
+            // Delta chart
+            deltaChart.data.datasets[0].data = filtered.map(p => ({ x: p.x, y: p.delta }));
+            deltaChart.update('none');
+            dataPointCount = filtered.length;
+            dataStartTime = filtered.length > 0 ? filtered[0].x.getTime() : Date.now();
+        }
+
+        async function loadChartFromHistory(slug) {
+            $chartTitle.textContent = 'Loading history...';
+            try {
+                const resp = await fetch(`/api/market/${slug}/history`);
+                if (!resp.ok) { $chartTitle.textContent = 'No historical data'; return; }
+                const json = await resp.json();
+                const points = json.data || [];
+
+                chart.data.datasets[0].data = points.map(p => ({ x: new Date(p.timestamp * 1000), y: p.yes_price }));
+                chart.data.datasets[1].data = points.map(p => ({ x: new Date(p.timestamp * 1000), y: p.no_price }));
+                // For past markets, show full 15-min window
+                chart.options.scales.x.max = currentMarketEndMs;
+                deltaChart.options.scales.x.max = currentMarketEndMs;
+                // Delta chart
+                deltaChart.data.datasets[0].data = points.map(p => ({ x: new Date(p.timestamp * 1000), y: p.btc_delta || 0 }));
+                deltaChart.update('none');
+                chart.update('none');
+                dataPointCount = points.length;
+                dataStartTime = points.length > 0 ? points[0].timestamp * 1000 : Date.now();
+                $chartTitle.textContent = `Historical Data (${points.length} points)`;
+            } catch (e) {
+                $chartTitle.textContent = 'Failed to load history';
+            }
+        }
+
+        function clearChart() {
+            chart.data.datasets[0].data = [];
+            chart.data.datasets[1].data = [];
+            chart.options.scales.x.min = undefined;
+            chart.options.scales.x.max = undefined;
+            chart.update('none');
+            // Clear delta chart too
+            deltaChart.data.datasets[0].data = [];
+            deltaChart.options.scales.x.min = undefined;
+            deltaChart.options.scales.x.max = undefined;
+            deltaChart.update('none');
+            dataPointCount = 0;
+            dataStartTime = Date.now();
+        }
+
+        // ── Carousel (exactly 3 pills: Past, Live, Next) ────────────
+        function renderPills() {
+            $pills.innerHTML = '';
+            markets.forEach((m, i) => {
+                const pill = document.createElement('div');
+                pill.className = `market-pill ${m.role} ${i === selectedIndex ? 'active' : ''}`;
+                const timeStr = extractTime(m);
+                pill.innerHTML = `<span class="role-badge badge-${m.role}">${m.role === 'current' ? 'LIVE' : m.role.toUpperCase()}</span> ${timeStr}`;
+                pill.onclick = () => selectMarket(i);
+                $pills.appendChild(pill);
+            });
+        }
+
+        function extractTime(m) {
+            const q = m.question || '';
+            const match = q.match(/(\d{1,2}:\d{2}[AP]M\s*-\s*\d{1,2}:\d{2}[AP]M\s*ET)/i);
+            if (match) return match[1];
+            const d = new Date(m.market_unix * 1000);
+            const hh = String(d.getUTCHours()).padStart(2, '0');
+            const mm = String(d.getUTCMinutes()).padStart(2, '0');
+            return `${hh}:${mm} UTC`;
+        }
+
+        async function selectMarket(index) {
+            if (index < 0 || index >= markets.length) return;
+            selectedIndex = index;
+            const m = markets[index];
+            selectedSlug = m.slug;
+            lastYes = null; lastNo = null;
+
+            $slug.textContent = m.slug;
+            $question.textContent = m.question || '—';
+            $roleBadge.className = `role-badge badge-${m.role}`;
+            $roleBadge.textContent = m.role === 'current' ? 'LIVE' : m.role.toUpperCase();
+
+            if (m.role === 'past') {
+                $chartLiveDot.style.display = 'none';
+                $chartTitle.textContent = 'Historical Price Chart';
+                $deltaChartLiveDot.style.display = 'none';
+                $deltaChartTitle.textContent = 'Historical BTC Delta';
+            } else {
+                $chartLiveDot.style.display = '';
+                $chartTitle.textContent = m.role === 'next' ? 'Pre-Market Live Chart' : 'Live Price Chart';
+                $deltaChartLiveDot.style.display = '';
+                $deltaChartTitle.textContent = m.role === 'next' ? 'Pre-Market BTC Delta' : 'Live BTC Delta (Δ)';
+            }
+
+            $chartContainer.classList.remove('chart-visible');
+            $chartContainer.classList.add('chart-fade');
+
+            clearChart();
+            // Set chart x-axis to this market's fixed 15-minute window
+            setChartTimeWindow(m.market_unix);
+            if (m.role === 'past' && !liveChartData[m.slug]?.length) {
+                await loadChartFromHistory(m.slug);
+            } else {
+                loadChartFromLiveData(m.slug);
+            }
+
+            if (m.yes_price > 0 || m.no_price > 0) {
+                updatePriceDisplay(m.yes_price || 0, m.no_price || 0);
+            }
+
+            // Show BTC data for this specific market (each has its own price_to_beat)
+            const ptb = m.price_to_beat || 0;
+            const cbtc = m.current_btc || 0;
+            const delta = (ptb > 0 && cbtc > 0) ? cbtc - ptb : 0;
+            updateBTCDelta(cbtc, ptb, delta, m.role);
+
+            startCountdown(m.expiry_unix);
+            renderPills();
+
+            requestAnimationFrame(() => {
+                $chartContainer.classList.remove('chart-fade');
+                $chartContainer.classList.add('chart-visible');
+            });
+
+            addLog(`Viewing: ${m.slug} [${m.role}]`);
+        }
+
+        // ── Price Display ───────────────────────────────────────────
+        function updatePriceDisplay(yesP, noP, lastChangedAt) {
+            const yesStr = yesP.toFixed(4), noStr = noP.toFixed(4);
+
+            // Always pulse on every tick to show data is being received
+            $yesPrice.classList.remove('tick-pulse'); void $yesPrice.offsetWidth;
+            $yesPrice.classList.add('tick-pulse');
+            $noPrice.classList.remove('tick-pulse'); void $noPrice.offsetWidth;
+            $noPrice.classList.add('tick-pulse');
+
+            // Flash brighter if price actually changed
+            if (lastYes !== null && yesP !== lastYes) {
+                $yesPrice.classList.remove('price-update'); void $yesPrice.offsetWidth;
+                $yesPrice.classList.add('price-update');
+            }
+            if (lastNo !== null && noP !== lastNo) {
+                $noPrice.classList.remove('price-update'); void $noPrice.offsetWidth;
+                $noPrice.classList.add('price-update');
+            }
+
+            $yesPrice.textContent = yesStr;
+            $noPrice.textContent = noStr;
+
+            if (lastYes !== null) {
+                const d = yesP - lastYes;
+                const changeStr = d >= 0 ? `▲ ${d.toFixed(6)}` : `▼ ${Math.abs(d).toFixed(6)}`;
+                // Show relative time since last actual price change
+                let agoStr = '';
+                if (lastChangedAt && lastChangedAt > 0) {
+                    const secsAgo = Math.round(Date.now() / 1000 - lastChangedAt);
+                    if (secsAgo < 2) agoStr = ' · just now';
+                    else if (secsAgo < 60) agoStr = ` · changed ${secsAgo}s ago`;
+                    else if (secsAgo < 3600) agoStr = ` · changed ${Math.floor(secsAgo / 60)}m ago`;
+                    else agoStr = ` · changed ${Math.floor(secsAgo / 3600)}h ago`;
+                }
+                $yesSub.textContent = changeStr + agoStr;
+                $yesSub.style.color = d >= 0 ? '#22c55e' : '#ef4444';
+            }
+            if (lastNo !== null) {
+                const d = noP - lastNo;
+                // Also show changed ago for No
+                let agoStr = '';
+                if (lastChangedAt && lastChangedAt > 0) {
+                    const secsAgo = Math.round(Date.now() / 1000 - lastChangedAt);
+                    if (secsAgo < 2) agoStr = ' · just now';
+                    else if (secsAgo < 60) agoStr = ` · changed ${secsAgo}s ago`;
+                    else if (secsAgo < 3600) agoStr = ` · changed ${Math.floor(secsAgo / 60)}m ago`;
+                    else agoStr = ` · changed ${Math.floor(secsAgo / 3600)}h ago`;
+                }
+                $noSub.textContent = (d >= 0 ? `▲ ${d.toFixed(6)}` : `▼ ${Math.abs(d).toFixed(6)}`) + agoStr;
+                $noSub.style.color = d >= 0 ? '#22c55e' : '#ef4444';
+            }
+            lastYes = yesP; lastNo = noP;
+
+            const spread = yesP - noP;
+            $spread.textContent = (spread >= 0 ? '+' : '') + spread.toFixed(4);
+            $spread.style.color = spread >= 0 ? '#22c55e' : '#ef4444';
+            if (Math.abs(spread) < 0.05) {
+                $spreadLabel.textContent = 'Tight — Uncertain'; $spreadLabel.style.color = '#6b7280';
+            } else if (yesP > noP) {
+                $spreadLabel.textContent = 'Favoring UP'; $spreadLabel.style.color = '#22c55e';
+            } else {
+                $spreadLabel.textContent = 'Favoring DOWN'; $spreadLabel.style.color = '#ef4444';
+            }
+
+            $dataPoints.textContent = dataPointCount.toLocaleString();
+            const elapsed = (Date.now() - dataStartTime) / 1000;
+            $dataRate.textContent = elapsed > 0 ? `${(dataPointCount / elapsed).toFixed(1)} pts/sec` : '—';
+        }
+
+        // ── BTC Delta Display ───────────────────────────────────────
+        function updateBTCDelta(currentBtc, priceToBeat, delta, role) {
+            if (currentBtc > 0) {
+                $btcCurrentPrice.textContent = `$${currentBtc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            } else {
+                $btcCurrentPrice.textContent = '—';
+            }
+
+            // For future (next) markets, PTB doesn't exist yet
+            if (role === 'next' || priceToBeat <= 0) {
+                if (role === 'next') {
+                    $btcPriceToBeat.textContent = 'Awaiting round start...';
+                    $btcDelta.textContent = 'N/A';
+                    $btcDelta.className = 'text-3xl font-extrabold mono delta-neutral';
+                    $btcDeltaLabel.textContent = 'Price to Beat forms when round begins';
+                    $btcDeltaLabel.className = 'text-xs mt-1 delta-neutral';
+                } else {
+                    $btcPriceToBeat.textContent = 'Loading...';
+                    $btcDelta.textContent = '—';
+                    $btcDelta.className = 'text-3xl font-extrabold mono delta-neutral';
+                    $btcDeltaLabel.textContent = 'Waiting for data...';
+                    $btcDeltaLabel.className = 'text-xs mt-1 delta-neutral';
+                }
+                return;
+            }
+
+            $btcPriceToBeat.textContent = `$${priceToBeat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+            if (currentBtc > 0) {
+                const prefix = delta >= 0 ? '+' : '';
+                $btcDelta.textContent = `${prefix}$${delta.toFixed(0)}`;
+                $btcDelta.className = `text-3xl font-extrabold mono ${delta >= 0 ? 'delta-positive' : 'delta-negative'}`;
+                if (delta > 0) {
+                    $btcDeltaLabel.textContent = '▲ BTC above start — UP favored';
+                    $btcDeltaLabel.className = 'text-xs mt-1 delta-positive';
+                } else if (delta < 0) {
+                    $btcDeltaLabel.textContent = '▼ BTC below start — DOWN favored';
+                    $btcDeltaLabel.className = 'text-xs mt-1 delta-negative';
+                } else {
+                    $btcDeltaLabel.textContent = '— No change';
+                    $btcDeltaLabel.className = 'text-xs mt-1 delta-neutral';
+                }
+            }
+        }
+
+        function startCountdown(expiryUnix) {
+            if (countdownInterval) clearInterval(countdownInterval);
+            if (!expiryUnix) { $countdown.textContent = '--:--'; return; }
+
+            countdownInterval = setInterval(() => {
+                const remaining = Math.max(0, expiryUnix - Math.floor(Date.now() / 1000));
+                const mins = Math.floor(remaining / 60);
+                const secs = remaining % 60;
+                $countdown.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+                const pct = (remaining / 900) * 100;
+                $progressBar.style.width = `${Math.max(0, pct)}%`;
+
+                if (remaining < 60) {
+                    $countdown.classList.add('timer-urgent');
+                    $progressBar.style.background = 'linear-gradient(90deg, #ef4444, #f59e0b)';
+                } else if (remaining < 180) {
+                    $countdown.classList.remove('timer-urgent');
+                    $progressBar.style.background = 'linear-gradient(90deg, #f59e0b, #eab308)';
+                } else {
+                    $countdown.classList.remove('timer-urgent');
+                    $progressBar.style.background = 'linear-gradient(90deg, #22c55e, #3b82f6)';
+                }
+
+                // ── Demo Trader: auto-settlement 10s before end ───
+                if (window.demoTrader) {
+                    window.demoTrader.updateSettleCountdown(remaining);
+                    if (remaining <= 10 && remaining > 0) {
+                        window.demoTrader.checkSettlement();
+                    }
+                }
+            }, 250);
+        }
+
+        // ── UI Helpers ──────────────────────────────────────────────
+        function setConnectionStatus(status) {
+            $wsStatusDot.className = 'status-dot';
+            if (status === 'connected') { $wsStatusDot.classList.add('status-connected'); $wsStatusText.textContent = 'Connected'; }
+            else if (status === 'connecting') { $wsStatusDot.classList.add('status-connecting'); $wsStatusText.textContent = 'Connecting...'; }
+            else { $wsStatusDot.classList.add('status-disconnected'); $wsStatusText.textContent = 'Disconnected'; }
+        }
+
+        function addLog(msg, level = 'info') {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const t = new Date().toLocaleTimeString('en-US', { hour12: false });
+            const colors = { info: '#6b7280', warn: '#f59e0b', error: '#ef4444', success: '#22c55e' };
+            entry.innerHTML = `<span style="color:#4b5563">${t}</span> <span style="color:${colors[level]||colors.info}">${msg}</span>`;
+            $logContainer.prepend(entry);
+            while ($logContainer.children.length > 100) $logContainer.removeChild($logContainer.lastChild);
+        }
+
+        // ── Market List Update ──────────────────────────────────────
+        function updateMarketList(newMarkets, newCurrentSlug, newNextSlug) {
+            const prevCurrentSlug = currentSlug;
+            if (newCurrentSlug) currentSlug = newCurrentSlug;
+            if (newNextSlug) nextSlug = newNextSlug;
+
+            // Filter to only 3 markets: latest past, current, next
+            const allMarkets = newMarkets || markets;
+            const pastMarkets = allMarkets.filter(m => m.role === 'past');
+            const currentMarket = allMarkets.find(m => m.role === 'current');
+            const nextMarket = allMarkets.find(m => m.role === 'next');
+            const latestPast = pastMarkets.length > 0 ? pastMarkets[pastMarkets.length - 1] : null;
+            markets = [];
+            if (latestPast) markets.push(latestPast);
+            if (currentMarket) markets.push(currentMarket);
+            if (nextMarket) markets.push(nextMarket);
+
+            if (selectedIndex === -1 || !selectedSlug) {
+                const idx = markets.findIndex(m => m.slug === currentSlug);
+                if (idx >= 0) selectMarket(idx);
+                else if (markets.length > 0) selectMarket(0);
+            } else if (newCurrentSlug && prevCurrentSlug !== newCurrentSlug) {
+                addLog(`🔄 Auto-switching to new LIVE: ${newCurrentSlug}`, 'success');
+                const idx = markets.findIndex(m => m.slug === newCurrentSlug);
+                if (idx >= 0) selectMarket(idx);
+            } else {
+                const idx = markets.findIndex(m => m.slug === selectedSlug);
+                if (idx >= 0) {
+                    selectedIndex = idx;
+                    const m = markets[idx];
+                    $roleBadge.className = `role-badge badge-${m.role}`;
+                    $roleBadge.textContent = m.role === 'current' ? 'LIVE' : m.role.toUpperCase();
+                }
+                renderPills();
+            }
+        }
+
+        // ── WebSocket ───────────────────────────────────────────────
+        function connectWS() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${location.host}/ws/live-chart`;
+            setConnectionStatus('connecting');
+            addLog(`Connecting to ${wsUrl}...`);
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => { setConnectionStatus('connected'); reconnectDelay = 1000; addLog('WebSocket connected', 'success'); };
+            ws.onmessage = e => { try { handleMessage(JSON.parse(e.data)); } catch(err) { console.error('Parse error:', err); } };
+            ws.onclose = () => { setConnectionStatus('disconnected'); addLog('Disconnected. Reconnecting...', 'warn'); setTimeout(connectWS, reconnectDelay); reconnectDelay = Math.min(reconnectDelay * 1.5, 30000); };
+            ws.onerror = () => { addLog('WebSocket error', 'error'); };
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'init':
+                    addLog(`Initialized with ${(msg.markets || []).length} markets`, 'success');
+                    updateMarketList(msg.markets, msg.current_slug, msg.next_slug);
+                    // Initial BTC data
+                    if (msg.btc) {
+                        updateBTCDelta(msg.btc.current_btc || 0, msg.btc.price_to_beat || 0, msg.btc.btc_delta || 0, '');
+                    }
+                    break;
+
+                case 'multi_price_tick':
+                    tickCounter++;
+                    $tickCount.textContent = `${tickCounter.toLocaleString()} ticks`;
+
+                    const ticks = msg.ticks || {};
+                    for (const [slug, tick] of Object.entries(ticks)) {
+                        addLivePoint(slug, tick.yes_price, tick.no_price, tick.btc_delta || 0);
+
+                        const mkt = markets.find(m => m.slug === slug);
+                        if (mkt) {
+                            mkt.yes_price = tick.yes_price;
+                            mkt.no_price = tick.no_price;
+                            mkt.remaining_seconds = tick.remaining_seconds;
+                            mkt.last_changed_at = tick.last_changed_at || 0;
+                            if (tick.price_to_beat) mkt.price_to_beat = tick.price_to_beat;
+                            if (tick.current_btc) mkt.current_btc = tick.current_btc;
+                        }
+
+                        if (slug === selectedSlug) {
+                            updatePriceDisplay(tick.yes_price, tick.no_price, tick.last_changed_at || 0);
+                            updateBTCDelta(tick.current_btc || 0, tick.price_to_beat || 0, tick.btc_delta || 0, tick.role || '');
+                        }
+                    }
+                    break;
+
+                case 'MARKET_UPDATE':
+                    addLog(`📊 Market update: ${msg.event}`, 'success');
+                    updateMarketList(msg.markets, msg.current_slug, msg.next_slug);
+                    break;
+
+                case 'MARKET_ROTATION':
+                    addLog('🔄 Market rotation occurred', 'success');
+                    updateMarketList(msg.markets, msg.current_slug, msg.next_slug);
+                    // Auto-switch to the new current (LIVE) market
+                    {
+                        const liveIdx = markets.findIndex(m => m.role === 'current');
+                        if (liveIdx >= 0) selectMarket(liveIdx);
+                    }
+                    // Reset demo trader for new round
+                    if (window.demoTrader) window.demoTrader.onNewRound();
+                    break;
+            }
+        }
+
+        // ── Keyboard Navigation ─────────────────────────────────────
+        document.addEventListener('keydown', e => {
+            if (e.key === 'ArrowLeft') { e.preventDefault(); selectMarket(selectedIndex - 1); }
+            else if (e.key === 'ArrowRight') { e.preventDefault(); selectMarket(selectedIndex + 1); }
+        });
+
+        // ── Demo Trader Module ──────────────────────────────────────
+        const DemoTrader = (function() {
+            const SHARES_PER_TRADE = 5;
+            const INITIAL_BALANCE = 100;
+            const LS_KEY = 'demoTraderState';
+
+            // DOM refs
+            const $balance = $('demoBalance');
+            const $qtyYes = $('demoQtyYes'), $qtyNo = $('demoQtyNo');
+            const $avgYes = $('demoAvgYes'), $avgNo = $('demoAvgNo');
+            const $costYes = $('demoCostYes'), $costNo = $('demoCostNo');
+            const $payoutYes = $('demoPayoutYes'), $payoutNo = $('demoPayoutNo');
+            const $pc = $('demoPC'), $gp = $('demoGP');
+            const $totalCost = $('demoTotalCost'), $roundPL = $('demoRoundPL');
+            const $tradeLog = $('tradeLog');
+            const $settleBanner = $('settleBanner');
+            const $settleInfo = $('demoSettleInfo');
+            const $btnUndo = $('btnUndo');
+            const $btnBuyYes = $('btnBuyYes'), $btnBuyNo = $('btnBuyNo');
+
+            // State
+            let state = {
+                balance: INITIAL_BALANCE,
+                qtyYes: 0, costYes: 0,
+                qtyNo: 0, costNo: 0,
+                history: [], // [{side, qty, price, cost}]
+                settled: false,
+                totalRounds: 0, totalWins: 0, totalPL: 0,
+            };
+
+            function loadState() {
+                try {
+                    const saved = localStorage.getItem(LS_KEY);
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        state.balance = parsed.balance ?? INITIAL_BALANCE;
+                        state.totalRounds = parsed.totalRounds ?? 0;
+                        state.totalWins = parsed.totalWins ?? 0;
+                        state.totalPL = parsed.totalPL ?? 0;
+                    }
+                } catch(e) {}
+            }
+
+            function saveState() {
+                try {
+                    localStorage.setItem(LS_KEY, JSON.stringify({
+                        balance: state.balance,
+                        totalRounds: state.totalRounds,
+                        totalWins: state.totalWins,
+                        totalPL: state.totalPL,
+                    }));
+                } catch(e) {}
+            }
+
+            function getCurrentPrice(side) {
+                if (side === 'yes') return lastYes;
+                if (side === 'no') return lastNo;
+                return null;
+            }
+
+            function buy(side) {
+                if (state.settled) return;
+                const price = getCurrentPrice(side);
+                if (!price || price <= 0) { addLog('⚠️ No live price for ' + side.toUpperCase(), 'warn'); return; }
+                const cost = price * SHARES_PER_TRADE;
+                if (cost > state.balance) { addLog('⚠️ Insufficient balance ($' + state.balance.toFixed(2) + ')', 'warn'); return; }
+
+                state.balance -= cost;
+                if (side === 'yes') {
+                    state.qtyYes += SHARES_PER_TRADE;
+                    state.costYes += cost;
+                } else {
+                    state.qtyNo += SHARES_PER_TRADE;
+                    state.costNo += cost;
+                }
+                state.history.push({ side, qty: SHARES_PER_TRADE, price, cost });
+
+                addTradeLog(`Bought ${SHARES_PER_TRADE}× ${side.toUpperCase()} @ ${price.toFixed(4)} = $${cost.toFixed(2)}`);
+                addLog(`💰 Demo: Bought ${SHARES_PER_TRADE}× ${side.toUpperCase()} @ ${price.toFixed(4)}`, 'success');
+                updateUI();
+            }
+
+            function undo() {
+                if (state.settled || state.history.length === 0) return;
+                const last = state.history.pop();
+                state.balance += last.cost;
+                if (last.side === 'yes') {
+                    state.qtyYes -= last.qty;
+                    state.costYes -= last.cost;
+                } else {
+                    state.qtyNo -= last.qty;
+                    state.costNo -= last.cost;
+                }
+                addTradeLog(`↩ Undid ${last.qty}× ${last.side.toUpperCase()} @ ${last.price.toFixed(4)}`);
+                updateUI();
+            }
+
+            function resetRound() {
+                // Return invested money
+                state.balance += state.costYes + state.costNo;
+                state.qtyYes = 0; state.costYes = 0;
+                state.qtyNo = 0; state.costNo = 0;
+                state.history = [];
+                state.settled = false;
+                $settleBanner.style.display = 'none';
+                $tradeLog.innerHTML = '';
+                addTradeLog('🗑 Round reset — positions cleared');
+                updateUI();
+            }
+
+            function checkSettlement() {
+                if (state.settled) return;
+                if (state.qtyYes === 0 && state.qtyNo === 0) return;
+                const yP = lastYes || 0;
+                const nP = lastNo || 0;
+                if (yP <= 0 && nP <= 0) return;
+
+                const winner = yP >= nP ? 'yes' : 'no';
+                settle(winner);
+            }
+
+            function settle(winner) {
+                if (state.settled) return;
+                state.settled = true;
+
+                const winQty = winner === 'yes' ? state.qtyYes : state.qtyNo;
+                const payout = winQty * 1; // $1 per winning share
+                const totalInvested = state.costYes + state.costNo;
+                const roundPL = payout - totalInvested;
+
+                state.balance += payout;
+                state.totalRounds++;
+                state.totalPL += roundPL;
+                if (roundPL > 0) state.totalWins++;
+
+                saveState();
+
+                const winLabel = winner === 'yes' ? 'YES / UP' : 'NO / DOWN';
+                const isProfit = roundPL >= 0;
+                $settleBanner.style.display = 'block';
+                $settleBanner.className = `settled-banner ${isProfit ? 'settled-win' : 'settled-loss'}`;
+                $settleBanner.innerHTML = `
+                    🏁 ${winLabel} wins! Payout: $${payout.toFixed(2)}
+                    &nbsp;|&nbsp; Round P/L: <strong>${roundPL >= 0 ? '+' : ''}$${roundPL.toFixed(2)}</strong>
+                `;
+
+                addLog(`🏁 Demo Settlement: ${winLabel} wins | Payout $${payout.toFixed(2)} | P/L ${roundPL >= 0 ? '+' : ''}$${roundPL.toFixed(2)}`, isProfit ? 'success' : 'error');
+                updateUI();
+            }
+
+            function onNewRound() {
+                // Auto-settle if not yet settled and we have positions
+                if (!state.settled && (state.qtyYes > 0 || state.qtyNo > 0)) {
+                    checkSettlement();
+                }
+                // Reset for new round after a brief display
+                setTimeout(() => {
+                    state.qtyYes = 0; state.costYes = 0;
+                    state.qtyNo = 0; state.costNo = 0;
+                    state.history = [];
+                    state.settled = false;
+                    $settleBanner.style.display = 'none';
+                    $tradeLog.innerHTML = '';
+                    addTradeLog('🔄 New round — ready to trade');
+                    saveState();
+                    updateUI();
+                }, 3000);
+            }
+
+            function updateSettleCountdown(remaining) {
+                if (state.settled) {
+                    $settleInfo.textContent = '✅ Settled';
+                } else if (remaining <= 10) {
+                    $settleInfo.textContent = `⚡ Settlement in ${remaining}s`;
+                    $settleInfo.style.color = '#ef4444';
+                } else if (remaining <= 60) {
+                    $settleInfo.textContent = `Settlement in ${remaining}s`;
+                    $settleInfo.style.color = '#f59e0b';
+                } else {
+                    $settleInfo.textContent = 'Settlement: auto';
+                    $settleInfo.style.color = '';
+                }
+            }
+
+            function addTradeLog(msg) {
+                const entry = document.createElement('div');
+                const t = new Date().toLocaleTimeString('en-US', { hour12: false });
+                entry.innerHTML = `<span style="color:#4b5563">${t}</span> <span style="color:#94a3b8">${msg}</span>`;
+                $tradeLog.prepend(entry);
+                while ($tradeLog.children.length > 20) $tradeLog.removeChild($tradeLog.lastChild);
+            }
+
+            function updateUI() {
+                const avgYes = state.qtyYes > 0 ? state.costYes / state.qtyYes : 0;
+                const avgNo = state.qtyNo > 0 ? state.costNo / state.qtyNo : 0;
+                const totalCost = state.costYes + state.costNo;
+                const pc = (state.qtyYes > 0 && state.qtyNo > 0) ? avgYes + avgNo : 0;
+                const minQty = Math.min(state.qtyYes, state.qtyNo);
+                const gp = (pc > 0 && pc < 1) ? minQty - totalCost : 0;
+
+                // Determine best potential payout
+                const payoutYes = state.qtyYes * 1;
+                const payoutNo = state.qtyNo * 1;
+                const bestPayout = Math.max(payoutYes, payoutNo);
+                const roundPL = bestPayout - totalCost;
+
+                $balance.textContent = `$${state.balance.toFixed(2)}`;
+                $qtyYes.textContent = state.qtyYes;
+                $qtyNo.textContent = state.qtyNo;
+                $avgYes.textContent = state.qtyYes > 0 ? avgYes.toFixed(4) : '—';
+                $avgNo.textContent = state.qtyNo > 0 ? avgNo.toFixed(4) : '—';
+                $costYes.textContent = `$${state.costYes.toFixed(2)}`;
+                $costNo.textContent = `$${state.costNo.toFixed(2)}`;
+                $payoutYes.textContent = `$${payoutYes.toFixed(2)}`;
+                $payoutNo.textContent = `$${payoutNo.toFixed(2)}`;
+                $totalCost.textContent = `$${totalCost.toFixed(2)}`;
+
+                // PC indicator
+                if (pc > 0) {
+                    $pc.textContent = pc.toFixed(4);
+                    if (pc < 1) {
+                        $pc.className = 'mono font-bold pc-safe';
+                        $pc.textContent += ' ✅';
+                    } else {
+                        $pc.className = 'mono font-bold pc-danger';
+                    }
+                } else {
+                    $pc.textContent = '—';
+                    $pc.className = 'mono font-bold text-gray-500';
+                }
+
+                // GP
+                if (gp > 0) {
+                    $gp.textContent = `+$${gp.toFixed(2)}`;
+                    $gp.className = 'mono font-bold pc-safe';
+                } else {
+                    $gp.textContent = '—';
+                    $gp.className = 'mono font-bold text-gray-500';
+                }
+
+                // Round P/L
+                if (totalCost > 0) {
+                    $roundPL.textContent = `${roundPL >= 0 ? '+' : ''}$${roundPL.toFixed(2)}`;
+                    $roundPL.style.color = roundPL >= 0 ? '#22c55e' : '#ef4444';
+                } else {
+                    $roundPL.textContent = '$0.00';
+                    $roundPL.style.color = '#6b7280';
+                }
+
+                // Button states
+                $btnUndo.disabled = state.history.length === 0 || state.settled;
+                $btnBuyYes.disabled = state.settled;
+                $btnBuyNo.disabled = state.settled;
+            }
+
+            // Init
+            loadState();
+            updateUI();
+
+            return { buy, undo, resetRound, checkSettlement, onNewRound, updateSettleCountdown };
+        })();
+        window.demoTrader = DemoTrader;
+
+        // ── Init ────────────────────────────────────────────────────
+        addLog('Dashboard v3 loaded. Connecting...');
+        connectWS();
+    })();
+    </script>
+</body>
+</html>
